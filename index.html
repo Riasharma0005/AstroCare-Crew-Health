@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:transparent;color:#f4ecff;font-family:'Fredoka','Nunito','ui-rounded','Arial Rounded MT Bold','Segoe UI',system-ui,sans-serif}
+.panel{border:2px solid rgba(183,156,255,.38);border-radius:28px;background:linear-gradient(160deg,#3d2290,#1b0e52);padding:14px;text-align:center;box-shadow:0 10px 30px rgba(8,2,30,.4)}
+.hud{display:flex;justify-content:space-between;font-weight:600;font-size:18px;padding:0 6px 8px}
+canvas{width:100%;max-width:560px;height:auto;border-radius:20px;background:radial-gradient(ellipse at 50% 0%,#2a1670,#0f0630);touch-action:none;outline:none;border:2px solid rgba(255,143,216,.35)}
+.hint{font-size:13px;color:#cdbdf5;margin:8px 0}
+button.b{font-family:inherit;font-weight:600;font-size:17px;color:#2b1659;background:linear-gradient(90deg,#ff8fd8,#b79cff);border:0;border-radius:999px;padding:10px 26px;cursor:pointer;box-shadow:0 6px 18px rgba(255,143,216,.35);margin:6px}
+button.b:hover{filter:brightness(1.1);transform:translateY(-2px)}
+.msg{font-size:18px;min-height:30px;margin:6px 0;font-weight:600}
+.big{border-radius:24px;height:250px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:background .1s;border:3px dashed rgba(255,255,255,.35)}
+.pl{width:92px;height:92px;border-radius:50%;position:relative;background:radial-gradient(circle at 30% 26%,var(--a),var(--b));box-shadow:inset -8px -9px 0 rgba(0,0,0,.16),0 0 30px var(--g);margin:0 auto}
+.pl i{position:absolute;top:38%;width:13%;height:17%;background:#2b1659;border-radius:50%}
+.pl i::after{content:"";position:absolute;top:16%;left:24%;width:36%;height:36%;background:#fff;border-radius:50%}
+.pl i.l{left:29%}.pl i.r{left:58%}
+.pl u{position:absolute;left:41%;top:60%;width:18%;height:9%;border:3px solid #2b1659;border-top:none;border-radius:0 0 100px 100px}
+.pl.wow u{width:9%;height:11%;left:45.5%;border:none;background:#2b1659;border-radius:50%}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:340px;margin:10px auto}
+.pad{aspect-ratio:1;border-radius:50%;cursor:pointer;opacity:.62;transition:all .12s;border:3px solid rgba(255,255,255,.4);position:relative}
+.pad.lit{opacity:1;transform:scale(1.1);box-shadow:0 0 38px 8px var(--g);border-color:#fff}
+.orb{width:120px;height:120px;border-radius:50%;margin:26px auto;background:radial-gradient(circle at 30% 26%,#b9ffe9,#2fbf94);box-shadow:0 0 40px rgba(109,242,196,.6),inset -10px -12px 0 rgba(0,0,0,.14);position:relative;transition:transform 4s ease-in-out}
+.orb i{position:absolute;top:38%;width:13%;height:17%;background:#2b1659;border-radius:50%}
+.orb i.l{left:29%}.orb i.r{left:58%}.orb u{position:absolute;left:41%;top:60%;width:18%;height:9%;border:4px solid #2b1659;border-top:none;border-radius:0 0 100px 100px}
+.sub{color:#cdbdf5;font-size:14px}
+</style></head>
+<body><div id="root"></div>
+<script>
+const P = window.parent;
+const post = (type, data) => P.postMessage(Object.assign({isStreamlitMessage: true, type}, data || {}), "*");
+const setH = () => post("streamlit:setFrameHeight", {height: Math.ceil(document.documentElement.scrollHeight) + 8});
+const send = (obj) => { obj.nonce = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  post("streamlit:setComponentValue", {value: obj, dataType: "json"}); };
+const root = document.getElementById("root");
+let started = false, AC = null;
+function beep(f, d = .25) { try { AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+  const o = AC.createOscillator(), g = AC.createGain(); o.type = "sine"; o.frequency.value = f; g.gain.value = .12;
+  o.connect(g); g.connect(AC.destination); o.start(); g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + d); o.stop(AC.currentTime + d); } catch (e) {} }
+const planet = (a, b, g, cls = "") => `<div class="pl ${cls}" style="--a:${a};--b:${b};--g:${g}"><i class="l"></i><i class="r"></i><u></u></div>`;
+
+/* ================= 🛸 ASTEROID DODGE ================= */
+function dodge() {
+  root.innerHTML = `<div class="panel"><div class="hud"><span id="sc">Score 0</span><span id="lv">❤️❤️❤️</span></div>
+  <canvas id="cv" width="560" height="420" tabindex="0"></canvas>
+  <div class="hint">Steer with ← → / A D or drag your finger. Catch ⭐, dodge ☄️!</div><button class="b" id="go">Start mission</button></div>`;
+  const cv = document.getElementById("cv"), c = cv.getContext("2d"), W = 560, H = 420;
+  let run = false, keys = {}, ship, objs, t, lives, stars, last, spawn, bg = [], px = null, hurt = 0, over = false;
+  for (let i = 0; i < 40; i++) bg.push([Math.random() * W, Math.random() * H, Math.random() * 1.8 + .4]);
+  const draw = () => {
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = "#fff"; bg.forEach(s => { c.globalAlpha = .4 + s[2] / 3; c.fillRect(s[0], s[1], s[2], s[2]); }); c.globalAlpha = 1;
+    c.textAlign = "center"; c.textBaseline = "middle";
+    if (ship) { if (!(hurt > 0 && Math.floor(hurt * 10) % 2)) { c.font = "40px serif"; c.fillText("🛸", ship.x, ship.y); } }
+    (objs || []).forEach(o => { c.font = (o.s ? 30 : 38) + "px serif"; c.fillText(o.s ? "⭐" : "☄️", o.x, o.y); });
+    if (!run) { c.fillStyle = "rgba(20,9,58,.72)"; c.fillRect(0, 0, W, H); c.fillStyle = "#fff"; c.font = "600 34px sans-serif";
+      c.fillText(over ? "Mission over! Score " + Math.floor(t) : "Ready for launch?", W / 2, H / 2 - 10);
+      c.font = "18px sans-serif"; c.fillText(over ? "You caught " + stars + " stars ⭐" : "Press Start", W / 2, H / 2 + 30); }
+  };
+  const reset = () => { ship = {x: W / 2, y: H - 46}; objs = []; t = 0; stars = 0; lives = 3; spawn = 0; hurt = 0; over = false; hud(); };
+  const hud = () => { document.getElementById("sc").textContent = "Score " + Math.floor(t + stars * 10); document.getElementById("lv").textContent = "❤️".repeat(Math.max(lives, 0)) + "🖤".repeat(3 - Math.max(lives, 0)); };
+  const end = () => { run = false; over = true; t = t + stars * 10; hud(); draw(); document.getElementById("go").textContent = "Play again"; document.getElementById("go").style.display = "";
+    send({game: "dodge", score: Math.floor(t), stars}); };
+  const loop = (now) => {
+    if (!run) return; const dt = Math.min(.05, (now - last) / 1000); last = now; t += dt; hurt = Math.max(0, hurt - dt);
+    const sp = 260 + t * 6, dir = (keys.ArrowLeft || keys.a ? -1 : 0) + (keys.ArrowRight || keys.d ? 1 : 0);
+    if (px !== null) ship.x += (px - ship.x) * Math.min(1, dt * 14); else ship.x += dir * 380 * dt;
+    ship.x = Math.max(24, Math.min(W - 24, ship.x));
+    spawn -= dt; if (spawn <= 0) { objs.push({x: 24 + Math.random() * (W - 48), y: -30, v: sp * (.7 + Math.random() * .6), s: Math.random() < .28}); spawn = Math.max(.22, .75 - t * .012); }
+    objs.forEach(o => o.y += o.v * dt);
+    objs = objs.filter(o => { if (Math.abs(o.x - ship.x) < 30 && Math.abs(o.y - ship.y) < 30) {
+      if (o.s) { stars++; beep(880, .12); return false; } if (hurt <= 0) { lives--; hurt = 1.2; beep(140, .3); } return false; } return o.y < H + 40; });
+    bg.forEach(s => { s[1] += s[2] * 60 * dt; if (s[1] > H) s[1] = 0; });
+    hud(); draw(); if (lives <= 0) return end(); requestAnimationFrame(loop);
+  };
+  const start = () => { reset(); run = true; document.getElementById("go").style.display = "none"; cv.focus(); last = performance.now(); requestAnimationFrame(loop); };
+  document.getElementById("go").onclick = start;
+  window.addEventListener("keydown", e => { if (["ArrowLeft", "ArrowRight", " "].includes(e.key) && run) e.preventDefault(); keys[e.key] = true; keys[e.key.toLowerCase()] = true; px = null; });
+  window.addEventListener("keyup", e => { keys[e.key] = false; keys[e.key.toLowerCase()] = false; });
+  const pos = e => { const r = cv.getBoundingClientRect(); px = (e.clientX - r.left) / r.width * W; };
+  cv.addEventListener("pointerdown", e => { cv.setPointerCapture(e.pointerId); pos(e); });
+  cv.addEventListener("pointermove", e => { if (e.buttons || e.pointerType === "touch") pos(e); });
+  reset(); draw();
+}
+
+/* ================= ⚡ REFLEX TEST ================= */
+function reflex() {
+  root.innerHTML = `<div class="panel"><div class="hud"><span id="rd">Round 1 / 5</span><span id="av"></span></div>
+  <div class="big" id="area" style="background:#3a2189">${planet("#ffb8ea", "#d052b0", "rgba(255,143,216,.6)")}
+  <div class="msg" id="msg">Tap to begin. Wait for the solar flare, then tap FAST!</div></div>
+  <div class="sub" id="log" style="margin-top:8px;min-height:20px"></div><button class="b" id="again" style="display:none">Test again</button></div>`;
+  const area = document.getElementById("area"), msg = document.getElementById("msg"), log = document.getElementById("log");
+  let phase = "idle", times = [], t0 = 0, to = null;
+  const setM = (t, bg) => { msg.textContent = t; if (bg) area.style.background = bg; };
+  const begin = () => { phase = "wait"; setM("Wait for it… 🌌", "#2a1670"); to = setTimeout(() => { phase = "go"; t0 = performance.now(); setM("⚡ SOLAR FLARE! TAP!", "#18a57a"); }, 1400 + Math.random() * 2800); };
+  const finish = () => { const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length); phase = "done";
+    setM(`Average: ${avg} ms ${avg <= 250 ? "🏆 lightning!" : avg <= 300 ? "😎 sharp" : avg <= 400 ? "🙂 okay" : "😴 rest up"}`, "#3a2189");
+    document.getElementById("again").style.display = ""; send({game: "reflex", score: avg, rounds: times}); };
+  area.onclick = () => {
+    if (phase === "idle") begin();
+    else if (phase === "wait") { clearTimeout(to); phase = "idle"; setM("Too soon! 🙈 Tap to retry this round", "#8a2a55"); }
+    else if (phase === "go") { const ms = Math.round(performance.now() - t0); times.push(ms); log.textContent = "Times: " + times.join(" · ") + " ms";
+      document.getElementById("rd").textContent = `Round ${Math.min(times.length + 1, 5)} / 5`;
+      if (times.length >= 5) finish(); else { phase = "idle"; setM(`${ms} ms! Tap for the next round`, "#3a2189"); } }
+  };
+  document.getElementById("again").onclick = () => reflex();
+}
+
+/* ================= 🌈 PLANET MEMORY ================= */
+function memory() {
+  const cols = [["#ffb8ea", "#d052b0", "rgba(255,143,216,.9)"], ["#9bffe0", "#2fbf94", "rgba(109,242,196,.9)"], ["#ffe39a", "#f08a3c", "rgba(255,211,107,.9)"], ["#a8dcff", "#3d7be0", "rgba(120,200,255,.9)"]];
+  const tones = [262, 330, 392, 523];
+  root.innerHTML = `<div class="panel"><div class="hud"><span id="lvl">Level 0</span><span id="bst"></span></div><div class="msg" id="msg">Watch the planets, then repeat the order!</div>
+  <div class="grid">${cols.map((c, i) => `<div class="pad" data-i="${i}" style="background:radial-gradient(circle at 30% 26%,${c[0]},${c[1]});--g:${c[2]}"></div>`).join("")}</div>
+  <button class="b" id="go">Start</button></div>`;
+  const pads = [...document.querySelectorAll(".pad")], msg = document.getElementById("msg");
+  let seq = [], idx = 0, accept = false, alive = false;
+  const lit = (i, ms = 420) => new Promise(r => { pads[i].classList.add("lit"); beep(tones[i], ms / 1000); setTimeout(() => { pads[i].classList.remove("lit"); setTimeout(r, 160); }, ms); });
+  const play = async () => { accept = false; msg.textContent = "Watch… 👀"; await new Promise(r => setTimeout(r, 600));
+    for (const i of seq) { if (!alive) return; await lit(i, Math.max(250, 450 - seq.length * 12)); } accept = true; idx = 0; msg.textContent = "Your turn! 🌟"; };
+  const next = () => { seq.push(Math.floor(Math.random() * 4)); document.getElementById("lvl").textContent = "Level " + (seq.length - 1); play(); };
+  pads.forEach(p => p.onclick = async () => { if (!accept || !alive) return; const i = +p.dataset.i; await lit(i, 200);
+    if (i !== seq[idx]) { alive = false; accept = false; const sc = seq.length - 1; msg.textContent = `Oops! You mastered ${sc} ${sc === 1 ? "step" : "steps"} 🌈`;
+      document.getElementById("go").style.display = ""; document.getElementById("go").textContent = "Play again"; send({game: "memory", score: sc}); return; }
+    idx++; if (idx === seq.length) { accept = false; msg.textContent = "Perfect! ✨"; setTimeout(next, 700); } });
+  document.getElementById("go").onclick = () => { seq = []; alive = true; document.getElementById("go").style.display = "none"; next(); };
+}
+
+/* ================= 🫧 ORBIT BREATHING ================= */
+function breath(args) {
+  const verses = (args && args.verses) || [];
+  root.innerHTML = `<div class="panel"><div class="hud"><span id="cy">Cycle 0 / 4</span><span class="sub">4 in · 4 hold · 6 out</span></div>
+  <div class="orb" id="orb"><i class="l"></i><i class="r"></i><u></u></div><div class="msg" id="msg">Sit comfortably. Press begin when you are ready.</div>
+  <div class="sub" id="cnt"></div><div id="vs" style="font-family:Georgia,serif;font-style:italic;font-size:17px;color:#f1dfc6;min-height:26px;margin-top:6px"></div><button class="b" id="go">Begin</button></div>`;
+  const orb = document.getElementById("orb"), msg = document.getElementById("msg"), cnt = document.getElementById("cnt"), go = document.getElementById("go");
+  let alive = false;
+  const wait = (s, label) => new Promise(res => { let n = s; cnt.textContent = n; const iv = setInterval(() => { if (!alive) { clearInterval(iv); return res(); } n--; cnt.textContent = n > 0 ? n : ""; if (n <= 0) { clearInterval(iv); res(); } }, 1000); });
+  go.onclick = async () => {
+    alive = true; go.style.display = "none"; const N = 4;
+    for (let i = 1; i <= N && alive; i++) {
+      document.getElementById("cy").textContent = `Cycle ${i} / ${N}`; document.getElementById("vs").textContent = verses[i - 1] ? "“" + verses[i - 1] + "”" : "";
+      msg.textContent = "Breathe in… 🌬️"; orb.style.transition = "transform 4s ease-in-out"; orb.style.transform = "scale(1.55)"; await wait(4);
+      if (!alive) break; msg.textContent = "Hold… ✨"; await wait(4);
+      if (!alive) break; msg.textContent = "Breathe out… 💨"; orb.style.transition = "transform 6s ease-in-out"; orb.style.transform = "scale(1)"; await wait(6);
+    }
+    if (alive) { msg.textContent = "Beautiful. Your orbit is calm 🪐"; cnt.textContent = ""; go.style.display = ""; go.textContent = "Another round"; alive = false; send({game: "breath", score: N}); }
+  };
+}
+
+const GAMES = {dodge, reflex, memory, breath};
+window.addEventListener("message", ev => { const d = ev.data;
+  if (d && d.type === "streamlit:render" && !started) { started = true; (GAMES[(d.args || {}).game] || dodge)(d.args || {}); setH(); new ResizeObserver(setH).observe(document.body); } });
+post("streamlit:componentReady", {apiVersion: 1});
+</script></body></html>
