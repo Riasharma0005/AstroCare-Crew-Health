@@ -7,7 +7,7 @@ Educational prototype with SIMULATED demo data. Not a medical device.
 """
 import streamlit as st
 
-from modules import body, corner, core, db, hazards, health, home, games, pip, rules, theme
+from modules import body, corner, core, db, hazards, health, home, games, pip_companion, rules, theme
 from modules.rules import ENVS
 
 st.set_page_config(page_title="AstroCare · Crew Health Intelligence", page_icon="🪐", layout="wide", initial_sidebar_state="expanded")
